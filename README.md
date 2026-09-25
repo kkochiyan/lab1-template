@@ -1,61 +1,151 @@
-# Лабораторная работа #1
+# Persons Service
 
-![GitHub Classroom Workflow](../../workflows/GitHub%20Classroom%20Workflow/badge.svg?branch=master)
+Учебный REST API для операций над сущностью Person на Python, FastAPI и PostgreSQL.
 
-## Continuous Integration & Continuous Delivery
+Реализованы HTTP API, сервисный слой, Repository, SQLAlchemy-адаптер, Unit of Work,
+фабрика приложения и миграция таблицы `persons`.
 
-### Формулировка
+## Подготовка окружения
 
-В рамках первой лабораторной работы требуется написать простейшее веб приложение, предоставляющее пользователю набор
-операций над сущностью Person. Для этого приложения автоматизировать процесс сборки, тестирования и релиза на Heroku.
+Требуется Python 3.13 или новее. Команды выполняются из корня проекта:
 
-Приложение должно реализовать API:
+```sh
+python3.13 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[dev]'
+cp .env.example .env
+```
 
-* `GET /persons/{personId}` – информация о человеке;
-* `GET /persons` – информация по всем людям;
-* `POST /persons` – создание новой записи о человеке;
-* `PATCH /persons/{personId}` – обновление существующей записи о человеке;
-* `DELETE /persons/{personId}` – удаление записи о человеке.
+Если `.venv` уже существует, достаточно активировать его и установить зависимости.
+Если `.env` уже существует, сохраните его настройки вместо повторного копирования.
 
-[Описание API](person-service.yaml) в формате OpenAPI.
+В `.env` задайте `DATABASE_URL` для своей PostgreSQL. Значения в примере рассчитаны
+на БД `persons` и пользователя `program` с паролем `test` на `localhost:5433`.
+Локальный `.env` исключён из Git.
 
-### Требования
+## Запуск
 
-* Исходный проект хранится на Github. Для сборки использовать
-  _только_ [Github Actions](https://docs.github.com/en/actions).
-* Запросы / ответы должны быть в формате JSON.
-* Если запись по id не найдена, то возвращать HTTP статус 404 Not Found.
-* При создании новой записи о человека (метод POST /person) возвращать HTTP статус 201 Created с пустым телом и
-  Header `Location: /api/v1/persons/{personId}`, где `personId` – id созданной записи.
-* Приложение должно содержать 4-5 unit-тестов на реализованные операции.
-* Приложение должно быть завернуто в Docker.
-* Деплой на Heroku реализовать средствами GitHub Actions, для деплоя использовать docker. Для деплоя _нельзя_
-  использовать Heroku CLI или webhooks.
-* В [build.yml](.github/workflows/classroom.yml) дописать шаги на сборку, прогон unit-тестов и деплой на Heroku.
-* Приложение должно использовать БД для хранения записей.
-* В [[inst][heroku] Lab1.postman_environment.json](postman/%5Binst%5D%5Bheroku%5D%20Lab1.postman_environment.json)
-  заменить значение `baseUrl` на адрес развернутого сервиса на Heroku.
+Запустите Docker Desktop. Затем поднимите PostgreSQL и проверьте его готовность:
 
-### Пояснения
+```sh
+docker compose up -d
+docker compose exec db pg_isready -U program -d persons
+```
 
-* [Пример](https://github.com/Romanow/person-service) приложения на Kotlin / Spring.
-* Для локальной разработки можно использовать Postgres в docker, для этого нужно запустить `docker compose up -d`,
-  поднимется контейнер с Postgres 13, будет создана БД `persons` и пользователь `program:test`.
-* После успешного деплоя на Heroku, через newman запускаются интеграционные тесты. Интеграционные тесты можно проверить
-  локально, для этого нужно импортировать в Postman
-  коллекцию [lab1.postman_collection.json](postman/%5Binst%5D%20Lab1.postman_collection.json)]) и
-  environment [[local] lab1.postman_environment.json](postman/%5Binst%5D%5Blocal%5D%20Lab1.postman_environment.json).
-* Для поиска нужного инструмента для сборки используется [Github Marketplace](https://github.com/marketplace).
-* Пояснение как работает [Heroku](https://devcenter.heroku.com/articles/how-heroku-works).
-* Для подключения БД на Heroku заходите через Dashboard в раздел Resources и в блоке `Add-ons` ищете Heroku Postgres.
-  Для получения адреса, пользователя и пароля переходите в саму БД и выбираете раздел `Settings`
-  -> `Database Credentials`.
-* ❗Heroku не позволяет регистрировать новых пользователей, поэтому для регистрации используйте VPN.
+После ответа `accepting connections` примените миграции и запустите приложение:
 
-### Прием задания
+```sh
+alembic upgrade head
+python -m uvicorn app.main:app --app-dir src --reload --port 8080 --env-file .env
+```
 
-1. При получении задания у вас создается fork этого репозитория для вашего пользователя.
-2. После того как все тесты успешно завершатся, в Github Classroom на Dashboard будет отмечен успешный прогон тестов.
-3. ❗️С конца
-   ноября [Heroku убирает Free Plan](https://help.heroku.com/RSBRUH58/removal-of-heroku-free-product-plans-faq),
-   останутся только платные подписки. В связи с этим, дедлайн по сдаче ЛР #1 10 ноября. 
+API будет доступен по адресу `http://localhost:8080/api/v1/persons`,
+документация — `http://localhost:8080/docs`.
+При остановке приложение освобождает пул соединений с БД.
+Таблицы создаются миграциями, а не автоматически при запуске приложения.
+
+## Тесты
+
+Unit-тесты и HTTP-тесты не требуют запущенного PostgreSQL:
+
+```sh
+python -m pytest
+```
+
+В наборе 10 основных тестов: операции сервиса, HTTP-ответы, откат UoW
+и жизненный цикл приложения.
+
+## Проверка с PostgreSQL
+
+Полный цикл проверен через HTTP на реальном Uvicorn и локальной PostgreSQL:
+
+- создание: `201`, пустое тело и `Location`;
+- получение записи и списка: `200` и JSON;
+- частичное обновление: пропущенные поля сохраняются, явный `null` очищает поле;
+- сохранение изменений после перезапуска процесса приложения;
+- удаление: `204` с пустым телом;
+- отсутствующая запись: `404` для GET, PATCH и DELETE;
+- неверные данные и некорректный JSON: `400` с `message` и `errors`;
+- откат незафиксированной записи при ошибке внутри UoW.
+
+Проверочные записи удалены или отменены откатом. Проверка с БД выполнялась
+отдельно и не увеличивает набор из 10 автоматических тестов.
+Для PATCH поле `name` обязательно согласно заданному OpenAPI.
+
+## Проверки преподавателя через Newman
+
+Оригинальная коллекция `postman/[inst] Lab1.postman_collection.json` проверена
+через Newman с PostgreSQL: все 5 запросов и 5 проверок прошли без ошибок.
+Коллекция проверяет создание, получение записи и списка, обновление и удаление.
+
+Для повторного запуска нужны Node.js с npm, запущенный PostgreSQL и приложение
+на порту `8080`. В отдельном терминале из корня проекта выполните:
+
+```sh
+npx --yes newman@6 run 'postman/[inst] Lab1.postman_collection.json' \
+  -e 'postman/[inst][local] Lab1.postman_environment.json' \
+  --delay-request 100
+```
+
+Коллекция создаёт запись, а последним запросом удаляет её. Это отдельная
+интеграционная проверка; набор из 10 тестов pytest не изменён.
+
+## Docker-образ приложения
+
+`Dockerfile` подготовлен на основе `python:3.13-slim`. В образ устанавливается
+приложение с рабочими зависимостями, добавляются миграции Alembic. Uvicorn
+запускается от непривилегированного пользователя на `0.0.0.0` без `--reload`.
+
+Настройки контейнера передаются через переменные окружения:
+
+- `DATABASE_URL` — обязательный адрес PostgreSQL для драйвера `asyncpg`;
+- `PORT` — порт сервера, по умолчанию `8080`.
+
+`.dockerignore` исключает локальные секреты, виртуальное окружение и кеши
+из контекста сборки. Значение `DATABASE_URL` в образ не записывается.
+При запуске приложения в той же Docker-сети, что и Compose-сервис `db`,
+адрес БД будет `postgresql+asyncpg://program:test@db:5432/persons`.
+`localhost` внутри контейнера обозначает сам контейнер.
+
+Согласно заданию образ должен собираться только в GitHub Actions.
+Сборка настроена в `.github/workflows/build.yml`; первый запуск на GitHub
+ещё предстоит после публикации изменений.
+Текущий Compose запускает только PostgreSQL. Миграции запускаются отдельно
+командой `alembic upgrade head`, до приёма запросов сервисом.
+
+## GitHub Actions
+
+Workflow `.github/workflows/build.yml` запускается при push в `master`,
+при pull request в эту ветку и вручную через вкладку Actions:
+
+1. Устанавливает Python 3.13 и зависимости проекта с инструментами тестирования.
+2. Проверяет зависимости и запускает 10 тестов pytest без PostgreSQL.
+3. При успешных тестах собирает Docker-образ `persons-service:ci` для `linux/amd64`.
+4. Проверяет импорт приложения и наличие маршрута API внутри образа.
+
+Образ пока используется только внутри runner: публикация в registry, деплой
+и Newman после деплоя будут добавлены следующим этапом. Проверка импорта
+не заменяет интеграционный тест с PostgreSQL.
+
+Шаблонный `classroom.yml` сохранён с ручным запуском: он требует настроенного
+Heroku environment и секретов преподавателя. Пока его запускать не нужно.
+Для текущего `build.yml` секреты Heroku не требуются.
+
+Использованы официальные примеры [настройки Python](https://github.com/actions/setup-python)
+и [сборки и проверки Docker-образа](https://docs.docker.com/build/ci/github-actions/test-before-push/).
+
+## Структура
+
+```text
+src/app/
+├── main.py              # Фабрика приложения и точка входа
+├── config.py            # Настройки из окружения и .env
+├── dependencies.py      # Предоставление сервиса маршрутам
+├── db/                  # Подключение, ORM-модели и реализация UoW
+├── services/            # Операции приложения
+├── uow/                 # Интерфейс Unit of Work
+├── repositories/        # Операции хранения
+└── routers/             # HTTP-маршруты и схемы
+```
+
+Публикация образа и деплой будут настроены следующим этапом.

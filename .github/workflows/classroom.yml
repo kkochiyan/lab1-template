@@ -1,11 +1,7 @@
 name: GitHub Classroom Workflow
 on:
-  push:
-    branches:
-      - master
-  pull_request:
-    branches:
-      - master
+  # Enable only after Heroku deployment and instructor settings are configured.
+  workflow_dispatch:
 jobs:
   build:
     name: Autograding
