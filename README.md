@@ -9,7 +9,7 @@
 - [Swagger UI](https://lab1-template-vn31.onrender.com/docs)
 - [GitHub Actions](https://github.com/kkochiyan/lab1-template/actions)
 
-Render используется вместо Heroku по согласованию с преподавателем.
+Render используется вместо Heroku.
 
 ## Подготовка окружения
 
@@ -78,7 +78,7 @@ python -m pytest
 отдельно и не увеличивает набор из 10 автоматических тестов.
 Для PATCH поле `name` обязательно согласно заданному OpenAPI.
 
-## Проверки преподавателя через Newman
+## Проверки через Newman
 
 Оригинальная коллекция `postman/[inst] Lab1.postman_collection.json` проверена
 через Newman с PostgreSQL: все 5 запросов и 5 проверок прошли без ошибок.
