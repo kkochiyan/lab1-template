@@ -1,6 +1,6 @@
 name: GitHub Classroom Workflow
 on:
-  # Enable only after Heroku deployment and instructor settings are configured.
+  # Legacy instructor workflow; the deployment pipeline is in build.yml.
   workflow_dispatch:
 jobs:
   build:

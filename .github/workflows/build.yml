@@ -1,4 +1,4 @@
-name: Tests and Docker build
+name: Test, build and deploy
 
 on:
   push:
@@ -12,12 +12,17 @@ permissions:
 
 concurrency:
   group: build-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.publish.outputs.image }}
     env:
       PYTHONDONTWRITEBYTECODE: "1"
 
@@ -62,3 +67,74 @@ jobs:
         run: |
           docker run --rm persons-service:ci python -c \
             'from app.main import app; assert "/api/v1/persons" in app.openapi()["paths"]'
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish tested image
+        id: publish
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          docker tag persons-service:ci "$image:$GITHUB_SHA"
+          docker push "$image:$GITHUB_SHA"
+          image_ref=$(docker inspect --format='{{index .RepoDigests 0}}' "$image:$GITHUB_SHA")
+          echo "image=$image_ref" >> "$GITHUB_OUTPUT"
+          docker tag persons-service:ci "$image:latest"
+          docker push "$image:latest"
+
+  deploy:
+    needs: build
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.ref == 'refs/heads/master' &&
+      vars.RENDER_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    env:
+      RENDER_SERVICE_ID: ${{ vars.RENDER_SERVICE_ID }}
+      RENDER_SERVICE_URL: ${{ vars.RENDER_SERVICE_URL }}
+      IMAGE_URL: ${{ needs.build.outputs.image }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Deploy image via Render API and wait for readiness
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: python scripts/deploy_render.py
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run Postman collection against deployed service
+        run: |
+          npx --yes newman@6 run 'postman/[inst] Lab1.postman_collection.json' \
+            -e 'postman/[inst][heroku] Lab1.postman_environment.json' \
+            --env-var "baseUrl=$RENDER_SERVICE_URL" \
+            --delay-request 100 --timeout-request 60000 \
+            --reporters cli,junit --reporter-junit-export newman-results.xml
+
+      - name: Upload API test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: newman-results
+          path: newman-results.xml
+          if-no-files-found: ignore

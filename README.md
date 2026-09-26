@@ -108,10 +108,10 @@ npx --yes newman@6 run 'postman/[inst] Lab1.postman_collection.json' \
 `localhost` внутри контейнера обозначает сам контейнер.
 
 Согласно заданию образ должен собираться только в GitHub Actions.
-Сборка настроена в `.github/workflows/build.yml`; первый запуск на GitHub
-ещё предстоит после публикации изменений.
-Текущий Compose запускает только PostgreSQL. Миграции запускаются отдельно
-командой `alembic upgrade head`, до приёма запросов сервисом.
+Сборка настроена в `.github/workflows/build.yml`. Текущий Compose запускает
+только PostgreSQL. В Docker-образе команда запуска сначала выполняет
+`python -m alembic upgrade head`, затем запускает Uvicorn. При ошибке миграции
+сервер не запускается. При локальном запуске без Docker миграции выполняются вручную.
 
 ## GitHub Actions
 
@@ -123,16 +123,64 @@ Workflow `.github/workflows/build.yml` запускается при push в `ma
 3. При успешных тестах собирает Docker-образ `persons-service:ci` для `linux/amd64`.
 4. Проверяет импорт приложения и наличие маршрута API внутри образа.
 
-Образ пока используется только внутри runner: публикация в registry, деплой
-и Newman после деплоя будут добавлены следующим этапом. Проверка импорта
-не заменяет интеграционный тест с PostgreSQL.
+5. Для `master` публикует тот же проверенный образ в GHCR с тегами SHA коммита и `latest`.
+6. Если `RENDER_DEPLOY_ENABLED=true`, отдельный job передаёт Render API точный
+   digest образа, ожидает статус `live` и готовность API с БД.
+7. Запускает Newman и сохраняет JUnit-отчёт в артефактах Actions.
 
-Шаблонный `classroom.yml` сохранён с ручным запуском: он требует настроенного
-Heroku environment и секретов преподавателя. Пока его запускать не нужно.
-Для текущего `build.yml` секреты Heroku не требуются.
+Pull request запускает только тесты и сборку — без публикации и деплоя.
+Для деплоя используются REST API и Bearer-токен, без CLI и deploy hooks.
+Автоматический деплой пока выключен: настройте параметры ниже.
 
-Использованы официальные примеры [настройки Python](https://github.com/actions/setup-python)
-и [сборки и проверки Docker-образа](https://docs.docker.com/build/ci/github-actions/test-before-push/).
+## Подключение Render
+
+Render используется вместо Heroku по согласованию с преподавателем.
+Текущий адрес: https://lab1-template-vn31.onrender.com.
+Текущий сервис `srv-darg407avr4c73ehgf8g` подключён к Git-репозиторию.
+Такой режим собирает образ на Render, поэтому для требования «сборка только
+в GitHub Actions» нужен сервис **Existing Image**.
+
+Порядок первоначальной настройки:
+
+1. Отправить изменения в `master` и дождаться успешного job `build`.
+   Он опубликует `ghcr.io/kkochiyan/lab1-template:latest`.
+2. В GitHub открыть профиль → Packages → `lab1-template` → Package settings.
+   Для доступа Render сделать образ Public либо настроить в Render credential
+   с GitHub-токеном `read:packages`. По умолчанию новый пакет приватный.
+3. В Render создать Web Service → **Existing Image** с адресом образа выше.
+   Выбрать регион существующей БД и подходящий тариф, добавить `DATABASE_URL`
+   с префиксом `postgresql+asyncpg://` из настроек текущего сервиса.
+   Поле **Docker Command оставить пустым**, чтобы использовать команду из образа.
+   Старый сервис и БД не удалять до проверки нового.
+4. В GitHub Settings → Secrets and variables → Actions добавить secret
+   `RENDER_API_KEY` (Render → Account Settings → API Keys).
+5. В разделе Variables добавить:
+
+   | Имя | Значение |
+   |---|---|
+   | `RENDER_SERVICE_ID` | ID сервиса Existing Image (`srv-...`) |
+   | `RENDER_SERVICE_URL` | Его публичный адрес `https://...onrender.com` |
+   | `RENDER_DEPLOY_ENABLED` | `true` |
+
+6. Если URL изменился, обновить `baseUrl` в
+   `postman/[inst][heroku] Lab1.postman_environment.json`. Название файла оставлено
+   для совместимости с шаблоном, внутри указано окружение Render.
+7. Запустить workflow **Test, build and deploy** через Actions → Run workflow
+   на ветке `master`. Последующие push в `master` выполнят весь цикл автоматически.
+
+Newman получает URL из `RENDER_SERVICE_URL`, поэтому проверяет именно настроенный
+сервис. Скрипт сверяет этот URL с ответом Render API и отказывается деплоить
+в Git-backed сервис. Пока нет ключа и сервиса Existing Image, автоматический
+деплой не считается проверенным. Обычные тесты и публикация образа работают
+без Render API key.
+
+Шаблонный `classroom.yml` сохранён с ручным запуском. Он содержит интеграцию
+с системой оценивания преподавателя и не нужен для обычного деплоя.
+Его запуск требует отдельной настройки преподавательских секретов.
+
+Документация: [Render Existing Image](https://render.com/docs/deploying-an-image),
+[Render Deploy API](https://api-docs.render.com/reference/create-deploy),
+[GitHub Container Registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
 
 ## Структура
 
@@ -148,4 +196,4 @@ src/app/
 └── routers/             # HTTP-маршруты и схемы
 ```
 
-Публикация образа и деплой будут настроены следующим этапом.
+Деплой описан в `scripts/deploy_render.py`, запускаемом из GitHub Actions.
